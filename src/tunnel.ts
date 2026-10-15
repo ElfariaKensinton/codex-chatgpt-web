@@ -283,7 +283,14 @@ export function connectTunnel(config: AppConfig): void {
     "--runtime-api-key", `file:${settings.runtimeKeyFile}`,
     "--mcp-command", mcpCommand(config),
     "--json",
-  ], { timeout: TUNNEL_READY_TIMEOUT_MS });
+  ], {
+    timeout: TUNNEL_READY_TIMEOUT_MS,
+    // Each ChatGPT caller can reinitialize the process-affine stdio worker.
+    // Complete the known MCP server's notification before another caller's
+    // tool can acquire the lifecycle slot; the tunnel still requires a
+    // successful initialize response and suppresses duplicate notifications.
+    env: { ...process.env, MCP_STDIO_SEND_INITIALIZED_NOTIFICATION: "true" },
+  });
   const structuredOutput = result.stdout.trim();
   const launchError = structuredOutput
     ? tunnelConnectLaunchError(structuredOutput)
