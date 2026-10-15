@@ -1065,7 +1065,8 @@ class RuntimeSupervisor {
       [...managedTunnelConnectArgs(config, invocation), "--control-plane-base-url", connection.baseURL],
       TUNNEL_START_TIMEOUT_MS,
       "Tunnel managed startup",
-      connection.env,
+      // Complete each successful shared-stdio handshake before another chat's tool.
+      { ...connection.env, MCP_STDIO_SEND_INITIALIZED_NOTIFICATION: "true" },
     );
   }
 
