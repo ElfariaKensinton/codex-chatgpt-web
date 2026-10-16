@@ -41,7 +41,8 @@ The bridge transports decisions; it does not add a second planner, semantic rout
 model. Every available effort uses the same MCP contract. An unavailable account route, missing
 connector, or missing outer tool fails explicitly instead of becoming an effort-specific exception.
 
-The direct turn-token MCP schema is attached only through the `Codex Native2` connector identity.
+The direct turn-token MCP schema is attached only through the exact configured connector name
+(default `Codex Native2`; the part after `Codex ` can be changed).
 The pre-v4 `Codex Native` connector is treated as legacy and is never selected as a fallback. This
 prevents a cached legacy schema from being mistaken for the current capability contract.
 
@@ -74,6 +75,11 @@ built-in Codex OpenAI provider cannot be configured with a bridge-specific crede
 preserving the native provider/task identity. Another process under the same OS user can reach the
 port. Run on a trusted single-user account and treat local code execution as inside the trust
 boundary.
+
+A web page is not a local process. Browsers can reach a loopback port with a cross-site request,
+or with a same-origin one after DNS rebinding, and they attach `Origin` to every non-GET request.
+The daemon rejects any non-GET request that carries `Origin` before it reaches a route; Codex and
+the launcher never send that header. This closes the browser path only and is not authentication.
 
 The lifecycle endpoints are separate from the Responses surface. `/admin/drain`, `/admin/resume`,
 `/admin/cancel-turn`, `/admin/cancel-turns`, and `/admin/shutdown` require a random bearer token stored in the

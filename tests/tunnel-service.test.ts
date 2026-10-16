@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultConfig } from "../src/config";
-import { createTunnelConfig, mcpCommand } from "../src/tunnel";
+import { connectTunnel, createTunnelConfig, mcpCommand } from "../src/tunnel";
 import { tunnelServiceDefinition } from "../src/tunnel-service";
 import { existingFullSetupCredentials, tunnelWorkerRuntimeChanged } from "../src/setup";
 
@@ -73,10 +73,54 @@ describe("tunnel launchd ownership", () => {
     expect(definition).toContain(`<string>${config.tunnel.profileDir}</string>`);
     expect(definition).toContain("<key>RunAtLoad</key>\n  <true/>");
     expect(definition).toContain("<key>KeepAlive</key>\n  <true/>");
+    expect(definition).toContain("<key>MCP_STDIO_SEND_INITIALIZED_NOTIFICATION</key>\n    <string>true</string>");
     expect(definition).not.toContain("tmux");
     expect(definition).not.toContain("/bin/sh");
     expect(definition).not.toContain(config.tunnel.tunnelId);
     expect(definition).not.toContain(key);
+  });
+
+  test.skipIf(process.platform === "win32")("enables the shared-stdio lifecycle shim in the managed tunnel child", () => {
+    const root = join(tmpdir(), `codex-chatgpt-web-tunnel-handshake-${process.pid}-${Date.now()}`);
+    roots.push(root);
+    process.env.CODEX_CHATGPT_WEB_HOME = root;
+    const binary = join(root, "fake-tunnel-client");
+    const capture = join(root, "child-environment.json");
+    mkdirSync(root, { recursive: true });
+    writeFileSync(binary, `#!${process.execPath}
+import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(capture)}, JSON.stringify({
+  initialized: process.env.MCP_STDIO_SEND_INITIALIZED_NOTIFICATION,
+  inherited: process.env.CODEX_CHATGPT_WEB_TEST_SENTINEL,
+  args: process.argv.slice(2),
+}));
+console.log(JSON.stringify({ running: true, healthy: true }));
+`);
+    chmodSync(binary, 0o700);
+    const config = defaultConfig("full");
+    config.tunnel = createTunnelConfig({
+      binaryPath: binary,
+      runtimeKeyFile: join(root, "runtime.key"),
+      tunnelId: "tunnel_0123456789abcdef0123456789abcdef",
+    });
+    const previousShim = process.env.MCP_STDIO_SEND_INITIALIZED_NOTIFICATION;
+    const previousSentinel = process.env.CODEX_CHATGPT_WEB_TEST_SENTINEL;
+    try {
+      process.env.MCP_STDIO_SEND_INITIALIZED_NOTIFICATION = "false";
+      process.env.CODEX_CHATGPT_WEB_TEST_SENTINEL = "inherited";
+      connectTunnel(config);
+      const child = JSON.parse(readFileSync(capture, "utf8"));
+      expect(child.initialized).toBe("true");
+      expect(child.inherited).toBe("inherited");
+      expect(child.args.slice(0, 2)).toEqual(["runtimes", "connect"]);
+      expect(child.args).toContain("--mcp-command");
+      expect(process.env.MCP_STDIO_SEND_INITIALIZED_NOTIFICATION).toBe("false");
+    } finally {
+      if (previousShim === undefined) delete process.env.MCP_STDIO_SEND_INITIALIZED_NOTIFICATION;
+      else process.env.MCP_STDIO_SEND_INITIALIZED_NOTIFICATION = previousShim;
+      if (previousSentinel === undefined) delete process.env.CODEX_CHATGPT_WEB_TEST_SENTINEL;
+      else process.env.CODEX_CHATGPT_WEB_TEST_SENTINEL = previousSentinel;
+    }
   });
 
   test("restarts the long-lived MCP worker when the installed release changes", () => {
