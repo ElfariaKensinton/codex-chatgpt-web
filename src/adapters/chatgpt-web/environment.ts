@@ -255,7 +255,7 @@ function looksLikeDelegationCandidate(item: Record<string, unknown> | undefined)
   if (item.name === "send_message_to_thread") return true;
   const texts: unknown[] = [item.output, item.content];
   if (Array.isArray(item.content)) texts.push(...item.content.map(part => record(part)?.text));
-  return texts.some(text => typeof text === "string" && /<codex_delegation(?:\\s|>)/.test(text));
+  return texts.some(text => typeof text === "string" && /<codex_delegation(?:\s|>)/.test(text));
 }
 
 
