@@ -111,7 +111,7 @@ test("tunnel control passes the resolved environment to a real child; local cont
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test("managed startup wires PAC into connect and never spawns after resolution fails", async () => {
+test("managed startup wires PAC and MCP lifecycle into connect and never spawns after resolution fails", async () => {
   const saved = {};
   const ownedNames = Object.keys(process.env).filter(key => /proxy|^CONTROL_PLANE_/i.test(key));
   for (const key of ownedNames) { saved[key] = process.env[key]; delete process.env[key]; }
@@ -127,6 +127,14 @@ test("managed startup wires PAC into connect and never spawns after resolution f
     assert.equal(args[args.indexOf("--control-plane-base-url") + 1], "https://api.openai.com");
     assert.equal(env.HTTPS_PROXY, "http://proxy.example:8080/");
     assert.equal(process.env.HTTPS_PROXY, undefined);
+    assert.equal(env.MCP_STDIO_SEND_INITIALIZED_NOTIFICATION, "true");
+    const probe = await RuntimeSupervisor.prototype.runTunnelCommand.call(
+      supervisor, _config,
+      ["-e", "console.log(process.env.MCP_STDIO_SEND_INITIALIZED_NOTIFICATION)"],
+      5_000, "MCP lifecycle fixture", env,
+    );
+    assert.equal(probe.code, 0);
+    assert.equal(probe.stdout.trim(), "true");
     return { code: 0 };
   };
   const config = { brokerSocketPath: "broker", tunnel: {
