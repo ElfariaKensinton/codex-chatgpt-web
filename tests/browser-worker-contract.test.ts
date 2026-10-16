@@ -892,8 +892,14 @@ test("two-part saved chats re-prove unchanged effort after the first message cre
   const control = { innerText: async () => "Instant", getAttribute: async () => "false" };
   const controls: any = { filter: () => controls, count: async () => 1, first: () => control };
   const composer = { locator: () => ({ locator: () => controls }), isEditable: async () => true };
+  const hiddenDialog = {
+    filter() { return this; },
+    last() { return this; },
+    isVisible: async () => false,
+  };
   const page = Object.assign(new EventEmitter(), {
     url: () => url, isClosed: () => false,
+    locator: () => hiddenDialog,
     evaluate: async () => { throw new Error("No real browser in the transport fixture"); },
   });
   let sends = 0;
@@ -3240,6 +3246,7 @@ test("effort selection stops as soon as ChatGPT reports an expired session", asy
 test("effort selection reports a rate limit when its model control is hidden", async () => {
   const neverVisible = new Promise<void>(() => {});
   const effortControl = {
+    filter() { return this; },
     last() { return this; },
     waitFor: async () => await neverVisible,
   };

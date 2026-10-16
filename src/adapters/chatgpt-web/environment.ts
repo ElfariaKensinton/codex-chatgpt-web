@@ -242,11 +242,23 @@ function currentTurnDelegationInstruction(
   expectedTurnId?: string,
 ): string | undefined {
   if (item?.type !== "function_call_output" || item.name !== "send_message_to_thread"
+    || ("namespace" in item && item.namespace !== "codex_app") || "call_id" in item
     || typeof item.id !== "string" || !item.id || typeof item.output !== "string"
     || expectedTurnId === undefined || itemTurnId(item) !== expectedTurnId) return undefined;
-  return /^<codex_delegation>\s*<source_thread_id>[A-Za-z0-9_-]{6,128}<\/source_thread_id>\s*<input>[\s\S]*\S[\s\S]*<\/input>\s*<\/codex_delegation>$/.test(item.output.trim())
-    ? item.output
-    : undefined;
+  const output = item.output.trim();
+  const match = /^<codex_delegation>\s*<source_thread_id>[A-Za-z0-9_-]{6,128}<\/source_thread_id>\s*<input>([\s\S]*?)<\/input>\s*<\/codex_delegation>$/.exec(output);
+  const instruction = match?.[1];
+  if (instruction === undefined || !instruction.trim() || instruction.includes("<")
+    || /&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-f]+;)/i.test(instruction)) return undefined;
+  return item.output;
+}
+
+function looksLikeDelegationCandidate(item: Record<string, unknown> | undefined): boolean {
+  if (!item) return false;
+  if (item.name === "send_message_to_thread") return true;
+  const texts: unknown[] = [item.output, item.content];
+  if (Array.isArray(item.content)) texts.push(...item.content.map(part => record(part)?.text));
+  return texts.some(text => typeof text === "string" && /<codex_delegation(?:\s|>)/.test(text));
 }
 
 
@@ -297,6 +309,20 @@ export function extractChatGptTurnUserRevision(parsed: CodexParsedRequest): unkn
 function latestChatGptTurnUserRevision(parsed: CodexParsedRequest, expectedTurnId?: string, recoverCheckpoint = true): ChatGptTurnUserRevision | undefined {
   const body = record(parsed._rawBody);
   const input = Array.isArray(body?.input) ? body.input : [];
+  const latestValidDelegationIndex = input.findLastIndex(value => (
+    currentTurnDelegationInstruction(record(value), expectedTurnId) !== undefined
+  ));
+  // Once a valid current-turn delegation exists, a later delegation-shaped but malformed item
+  // must fail closed instead of silently falling back to the earlier instruction.
+  if (latestValidDelegationIndex >= 0) {
+    for (let index = latestValidDelegationIndex + 1; index < input.length; index += 1) {
+      const item = record(input[index]);
+      if (looksLikeDelegationCandidate(item)
+        && currentTurnDelegationInstruction(item, expectedTurnId) === undefined) {
+        throw new Error(CHATGPT_TURN_REVISION_CONFLICT_MESSAGE);
+      }
+    }
+  }
   const metadata = clientTurnMetadata(parsed);
   const recovered = recoverCheckpoint ? recoverCompactionInstruction(parsed, extractChatGptTurnIdentity(parsed)) : undefined;
   for (let index = input.length - 1; index >= 0; index -= 1) {

@@ -54,6 +54,16 @@ jobs:
         run: bun run launcher/scripts/prepare-linux-appimage-tools.cjs
       - run: bun run verify
       - run: bun run app:package
+      - name: Upload macOS arm64 distributables
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-web-gpt-macos-arm64
+          path: |
+            launcher/artifacts/*-mac-arm64.dmg
+            launcher/artifacts/*-mac-arm64.zip
+          if-no-files-found: error
+          retention-days: 14
       - name: Verify Linux AppImage ABI on current Arch
         if: runner.os == 'Linux'
         run: |

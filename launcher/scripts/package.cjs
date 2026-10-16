@@ -89,7 +89,11 @@ function verifySignedMacArchive() {
   try {
     runChecked("ditto", ["-x", "-k", path.join(staging, archives[0]), verificationRoot]);
     const appBundle = path.join(verificationRoot, `${launcherManifest.build.productName}.app`);
-    runChecked("codesign", ["--verify", "--deep", "--strict", appBundle]);
+    // Pull-request builds deliberately skip signing because they must not require release secrets.
+    // Keep checking the embedded runtime, but only require a valid signature on trusted builds.
+    if (env.GITHUB_EVENT_NAME !== "pull_request") {
+      runChecked("codesign", ["--verify", "--deep", "--strict", appBundle]);
+    }
     validateRuntimeBundle(path.join(appBundle, "Contents", "Resources", "runtime"), {
       version: launcherManifest.version,
       platform: "darwin",
