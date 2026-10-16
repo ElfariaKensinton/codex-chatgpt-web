@@ -232,6 +232,21 @@ function chatGptModelControlUnavailableAdapterError(diagnostic: string, detail?:
   );
 }
 
+export function chatGptProUnavailableAdapterError(diagnostic: string, detail?: string): ChatGptWebAdapterError {
+  const message = detail
+    ? `ChatGPT Pro is currently unavailable. ChatGPT: ${detail} No lower-effort fallback was used.`
+    : "ChatGPT Pro is currently unavailable in the model picker. This can happen when its usage limit is reached "
+      + "or the account capability changes. Wait for Pro to reappear, then retry or run Repair. "
+      + "No lower-effort fallback was used.";
+  return new ChatGptWebAdapterError(message, {
+    status: 429,
+    errorType: "rate_limit_error",
+    code: "chatgpt_pro_unavailable",
+    retryable: false,
+    cause: new Error(diagnostic),
+  });
+}
+
 export async function chatGptUnavailableProDetail(menu: Locator): Promise<string | undefined> {
   // Pro is the product label in the picker. Its linked tooltip supplies the site's own
   // localized explanation/date; do not search the conversation or infer a reset time.
@@ -2676,9 +2691,14 @@ export class ChatGptBrowserWorker {
         .catch(error => { throw chatGptModelControlUnavailableAdapterError(String(error)); });
       if (uiEffortIndex > state.max - state.min) {
         const detail = uiEffortIndex === 4 ? await chatGptUnavailableProDetail(menu) : undefined;
+        if (uiEffortIndex === 4 && state.min === 0 && state.max === 3) {
+          throw chatGptProUnavailableAdapterError(
+            `ChatGPT effort slider does not expose Pro item index ${uiEffortIndex} (min=${state.min}; max=${state.max})`,
+            detail,
+          );
+        }
         throw chatGptModelControlUnavailableAdapterError(
-          `ChatGPT effort slider does not expose item index ${uiEffortIndex} (min=${state.min}; max=${state.max})`
-          + (uiEffortIndex === 4 ? " ChatGPT may have temporarily hidden Pro because you reached its usage limit." : ""),
+          `ChatGPT effort slider does not expose item index ${uiEffortIndex} (min=${state.min}; max=${state.max})`,
           detail,
         );
       }
@@ -3804,6 +3824,19 @@ export class ChatGptBrowserWorker {
       }
       throw error;
     }
+  }
+
+  private async attachMultipartStagePrompt(
+    page: Page,
+    prompt: string,
+    captureDiagnostic?: (checkpoint: string) => Promise<void>,
+    abortSignal?: AbortSignal,
+  ): Promise<void> {
+    // A requests-too-quickly modal can appear only after the previous staged part is accepted.
+    // Detect it before touching the next composer: execCommand otherwise returns false behind the
+    // modal and misclassifies an account cooldown as a prompt-attachment integrity failure.
+    await throwIfChatGptRateLimitDialog(page);
+    await this.attachPrompt(page, prompt, false, captureDiagnostic, abortSignal);
   }
 
   private async waitForSubmissionAcceptedWithRecovery(
@@ -5409,10 +5442,9 @@ export class ChatGptBrowserWorker {
             turn.traceId,
             `multipart_stage_${index + 1}_attachment`,
             browserStageTimeouts.promptAttachment,
-            (stageSignal) => this.attachPrompt(
+            (stageSignal) => this.attachMultipartStagePrompt(
               page,
               stage.text,
-              false,
               checkpoint => diagnostics.capture(page, `multipart-${index + 1}-${checkpoint}`),
               turn.abortSignal ? AbortSignal.any([stageSignal, turn.abortSignal]) : stageSignal,
             ),
