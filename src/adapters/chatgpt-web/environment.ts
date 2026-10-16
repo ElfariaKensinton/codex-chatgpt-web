@@ -242,12 +242,15 @@ function currentTurnDelegationInstruction(
   expectedTurnId?: string,
 ): string | undefined {
   if (item?.type !== "function_call_output" || item.name !== "send_message_to_thread"
-    || item.namespace !== "codex_app" || "call_id" in item
+    || ("namespace" in item && item.namespace !== "codex_app") || "call_id" in item
     || typeof item.id !== "string" || !item.id || typeof item.output !== "string"
     || expectedTurnId === undefined || itemTurnId(item) !== expectedTurnId) return undefined;
-  return /^<codex_delegation>\s*<source_thread_id>[A-Za-z0-9_-]{6,128}<\/source_thread_id>\s*<input>[\s\S]*\S[\s\S]*<\/input>\s*<\/codex_delegation>$/.test(item.output.trim())
-    ? item.output
-    : undefined;
+  const output = item.output.trim();
+  const match = /^<codex_delegation>\s*<source_thread_id>[A-Za-z0-9_-]{6,128}<\/source_thread_id>\s*<input>([\s\S]*?)<\/input>\s*<\/codex_delegation>$/.exec(output);
+  const instruction = match?.[1];
+  if (instruction === undefined || !instruction.trim() || instruction.includes("<")
+    || /&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-f]+;)/i.test(instruction)) return undefined;
+  return item.output;
 }
 
 function looksLikeDelegationCandidate(item: Record<string, unknown> | undefined): boolean {
